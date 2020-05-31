@@ -4,15 +4,32 @@ namespace App\Entity;
 
 use ApiPlatform\Core\Annotation\ApiResource;
 use App\Repository\UserRepository;
+use DateTimeInterface;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Validator\Constraints as Assert;
+use App\Dto\User\UserOutput;
 
 /**
  * @ORM\Entity(repositoryClass=UserRepository::class)
+ * @ORM\HasLifecycleCallbacks
  * @UniqueEntity("email",message="Email already used. Please choose another one.")
- * @ApiResource
+ * @UniqueEntity("username",message="Username already used. Please choose another one.")
+ * @ApiResource(
+ *     output=UserOutput::class,
+ *     collectionOperations={
+ *          "get",
+ *          "post"={"security"="is_granted('ROLE_ADMIN')"}
+ *     },
+ *     itemOperations={
+ *         "get",
+ *         "put"={"security"="is_granted('ROLE_ADMIN') or object == user"},
+ *     }
+ * )
+ *
  */
 class User implements UserInterface
 {
@@ -35,6 +52,12 @@ class User implements UserInterface
     private $roles = [];
 
     /**
+     * @ORM\Column(type="string", length=255)
+     * @Assert\NotBlank
+     */
+    private $username;
+
+    /**
      * @var string The hashed password
      * @ORM\Column(type="string")
      * @Assert\NotBlank
@@ -46,6 +69,27 @@ class User implements UserInterface
      * @ORM\Column(type="string", length=255, nullable=true)
      */
     private $avatar;
+
+    /**
+     * @ORM\OneToMany(targetEntity=Oauth2AccessToken::class, mappedBy="user", orphanRemoval=true)
+     */
+    private $oauth2AccessTokens;
+
+    /**
+     * @ORM\Column(type="datetime")
+     */
+    private $createdAt;
+
+    /**
+     * @ORM\Column(type="datetime")
+     */
+    private $updatedAt;
+
+
+    public function __construct()
+    {
+        $this->oauth2AccessTokens = new ArrayCollection();
+    }
 
     public function getId(): ?int
     {
@@ -82,7 +126,20 @@ class User implements UserInterface
      */
     public function getUsername(): string
     {
-        return (string)$this->email;
+        return $this->username;
+    }
+
+    /**
+     * set username
+     *
+     * @param string $username
+     * @return $this
+     */
+    public function setUsername(string $username): self
+    {
+        $this->username = $username;
+
+        return $this;
     }
 
     /**
@@ -174,4 +231,109 @@ class User implements UserInterface
 
         return $this;
     }
+
+    /**
+     * @return Collection|Oauth2AccessToken[]
+     */
+    public function getOauth2AccessTokens(): Collection
+    {
+        return $this->oauth2AccessTokens;
+    }
+
+    /**
+     * Attach token to user
+     *
+     * @param Oauth2AccessToken $oauth2AccessToken
+     * @return $this
+     */
+    public function addOauth2AccessToken(Oauth2AccessToken $oauth2AccessToken): self
+    {
+        if (!$this->oauth2AccessTokens->contains($oauth2AccessToken)) {
+            $this->oauth2AccessTokens[] = $oauth2AccessToken;
+            $oauth2AccessToken->setUser($this);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Detach token from user
+     *
+     * @param Oauth2AccessToken $oauth2AccessToken
+     * @return $this
+     */
+    public function removeOauth2AccessToken(Oauth2AccessToken $oauth2AccessToken): self
+    {
+        if ($this->oauth2AccessTokens->contains($oauth2AccessToken)) {
+            $this->oauth2AccessTokens->removeElement($oauth2AccessToken);
+            // set the owning side to null (unless already changed)
+            if ($oauth2AccessToken->getUser() === $this) {
+                $oauth2AccessToken->setUser(null);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * get created at
+     *
+     * @return DateTimeInterface|null
+     */
+    public function getCreatedAt(): ?DateTimeInterface
+    {
+        return $this->createdAt;
+    }
+
+    /**
+     * set created at
+     *
+     * @param DateTimeInterface $createdAt
+     *
+     * @return User
+     */
+    public function setCreatedAt(DateTimeInterface $createdAt): self
+    {
+        $this->createdAt = $createdAt;
+
+        return $this;
+    }
+
+    /**
+     * get updated at
+     *
+     * @return DateTimeInterface|null
+     */
+    public function getUpdatedAt(): ?DateTimeInterface
+    {
+        return $this->updatedAt;
+    }
+
+    /**
+     * set updated at
+     *
+     * @param DateTimeInterface $updatedAt
+     * @return $this
+     */
+    public function setUpdatedAt(DateTimeInterface $updatedAt): self
+    {
+        $this->updatedAt = $updatedAt;
+
+        return $this;
+    }
+
+    /**
+     * Triggers by doctrine lifecycle hooks to update dates
+     *
+     * @ORM\PrePersist
+     * @ORM\PreUpdate
+     */
+    public function updatedTimestamps(): void
+    {
+        $this->setUpdatedAt(new \DateTime('now'));
+        if ($this->getCreatedAt() === null) {
+            $this->setCreatedAt(new \DateTime('now'));
+        }
+    }
+
 }
